@@ -1,0 +1,76 @@
+name: Weekly PAL data
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+      timezone: 'Australia/Melbourne'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-pal-data
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out publisher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+
+      - name: Test publisher before network collection
+        run: node --test scripts/*.node.mjs
+
+      - name: Download the current package or use the repository seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir previous
+          set +e
+          TAG=$(gh api 'repos/Vurctne/lumera-pal-data/releases/latest' --jq .tag_name 2> /tmp/latest-error.txt)
+          API_STATUS=$?
+          set -e
+          if [ "$API_STATUS" -eq 0 ]; then
+            test -n "$TAG"
+            gh release download "$TAG" --repo 'Vurctne/lumera-pal-data' --dir previous \
+              --pattern manifest.json --pattern pal-dataset.json.gz
+          elif grep -Eq 'HTTP 404|Not Found' /tmp/latest-error.txt; then
+            echo "No release exists yet; using the committed seed."
+            cp seed/manifest.json seed/pal-dataset.json.gz previous/
+          else
+            echo "Could not query the latest release; refusing to fall back to seed." >&2
+            cat /tmp/latest-error.txt >&2
+            exit 1
+          fi
+
+      - name: Build and validate the complete refresh
+        run: node scripts/run.mjs --previous previous --out next
+
+      - name: Publish verified release assets
+        run: node scripts/publish.mjs --dir next
+
+      - name: Record successful activity without committing dataset output
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync('next/manifest.json')); fs.writeFileSync('status.json', JSON.stringify({version:m.version,generatedAt:m.generatedAt},null,2)+'\n')"
+          if git ls-files --error-unmatch status.json >/dev/null 2>&1 && git diff --quiet -- status.json; then
+            echo "status.json already current."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add status.json
+          git commit -m "chore: record PAL refresh ${GITHUB_RUN_ID}"
+          git push

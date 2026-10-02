@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "version": "20260927090035",
+  "generatedAt": "2026-09-27T09:00:35.000Z",
+  "minAppVersion": "3.0.7",
+  "file": "pal-dataset.json.gz",
+  "bytes": 6827844,
+  "unpackedBytes": 32765531,
+  "sha256": "c2fb662cddb954f931e4a27706517c09f12e28625d3e8de94069823fd059e5c2"
+}
