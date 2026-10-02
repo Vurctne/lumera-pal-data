@@ -379,6 +379,43 @@ test('body-only pages still emit a non-empty searchable corpus chunk', async () 
   assert.deepEqual(dataset.sections['7'], [])
 })
 
+test('a short Summary lead includes its following source list', async () => {
+  const parentContributions = `<html><body><h1>Parent Contributions</h1><main>
+    <h2 id="summary">Summary</h2>
+    <p>Schools must:</p>
+    <ul><li>provide students with free instruction</li><li>follow the parent payment arrangements</li></ul>
+    <h2 id="policy">Policy</h2><p>This policy explains the requirements for parent contributions.</p>
+  </main></body></html>`
+  const fetch = fakeFetch({
+    [`${ORIGIN}/sitemap.xml`]: response(200, sitemap(`${ORIGIN}/pal/alpha/policy`)),
+    [`${ORIGIN}/pal/alpha/print-all`]: response(200, parentContributions),
+  })
+  const { dataset } = await refreshDataset(previous(), { fetchImpl: fetch, delayMs: 0 })
+  assert.equal(
+    dataset.policies[0].summary,
+    'Schools must: provide students with free instruction follow the parent payment arrangements'
+  )
+})
+
+test('without Summary or meta description, summary starts from substantive Overview text', async () => {
+  const overview = `<html><body><h1>Overview Policy</h1><main>
+    <section><h2>Policy last updated</h2><p>30 September 2026</p><h2>Scope</h2><p>Schools</p><p>Date: 2 October 2026</p></section>
+    <h2 id="overview">Overview</h2><p>This policy sets out how schools support students and document the support they provide.</p>
+    <h2 id="related-policies">Related policies</h2><p>Another policy with enough words to otherwise look substantive.</p>
+    <h2 id="resources">Resources</h2><p>Forms and templates are available from the department.</p>
+  </main></body></html>`
+  const fetch = fakeFetch({
+    [`${ORIGIN}/sitemap.xml`]: response(200, sitemap(`${ORIGIN}/pal/alpha/policy`)),
+    [`${ORIGIN}/pal/alpha/print-all`]: response(200, overview),
+  })
+  const { dataset } = await refreshDataset(previous(), { fetchImpl: fetch, delayMs: 0 })
+  assert.equal(
+    dataset.policies[0].summary,
+    'This policy sets out how schools support students and document the support they provide.'
+  )
+  assert.equal(dataset.policies[0].summary.includes('Policy last updated'), false)
+})
+
 test('oversize responses are rejected without publishing partial content', async () => {
   const oversized = response(200, '', { 'content-length': String(8 * 1024 * 1024 + 1) })
   const fetch = fakeFetch({

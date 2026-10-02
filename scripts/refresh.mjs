@@ -357,10 +357,25 @@ function extractPage(html, sourceUrl, slug) {
         )
       : ''
   const firstParagraph = plain(summaryBlock.match(/<p\b[^>]*>([^]*?)<\/p>/i)?.[1] || '')
+  const fullSummary = plain(summaryBlock)
   const body = plain(main)
-  const summary = shortSourceText(
-    firstParagraph || plain(summaryBlock) || metaDescription(html) || body
+  const shortLead =
+    firstParagraph &&
+    fullSummary.length > firstParagraph.length + 20 &&
+    (/[:：]\s*$/.test(firstParagraph) || firstParagraph.length < 80)
+  const substantiveChunk = chunks.find(
+    (chunk) =>
+      !/^(?:resources|related policies|policy last updated|scope|date)$/i.test(
+        chunk.heading.trim()
+      ) &&
+      chunk.text.split(/\s+/).length >= 8
   )
+  const summarySource = summaryBlock
+    ? shortLead
+      ? fullSummary
+      : firstParagraph || fullSummary
+    : metaDescription(html) || substantiveChunk?.text || body
+  const summary = shortSourceText(summarySource)
   if (!chunks.length && body)
     chunks.push({ heading: h1(html), url: sourceUrl.split('#')[0], text: body })
   return {
