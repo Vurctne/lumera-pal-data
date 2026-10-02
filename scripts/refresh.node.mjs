@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { refreshDataset } from './refresh.mjs'
+import { refreshDataset, sanitizeDatasetNavigationLinks } from './refresh.mjs'
 
 const ORIGIN = 'https://www2.education.vic.gov.au'
 
@@ -136,6 +136,50 @@ test('replaces body, sections, corpus, summary and stale generated chapters with
     { title: 'Current guide', url: 'https://files.example.gov.au/guide.pdf' },
   ])
   assert.equal(report.updated.length, 1)
+})
+
+test('real-shaped skip and print-all links never become chapters', async () => {
+  const print = `${ORIGIN}/pal/alpha/print-all`
+  const html = `<!doctype html><html><body>
+    <a href="#rpl-main">Skip to main content</a>
+    <header><h1>Alpha Policy</h1><a href="${print}">Print whole topic</a></header>
+    <main id="rpl-main">
+      <a href="${print}">Skip to main content</a>
+      <a href="/pal/alpha/guidance/real-chapter">Real chapter</a>
+      <h2 id="summary">Summary</h2><p>Schools follow the current policy requirements.</p>
+      <h2 id="real-section">Real section</h2><p>This section remains searchable and linked.</p>
+    </main>
+  </body></html>`
+  const fetch = fakeFetch({
+    [`${ORIGIN}/sitemap.xml`]: response(200, sitemap(`${ORIGIN}/pal/alpha/policy`)),
+    [print]: response(200, html),
+  })
+  const { dataset } = await refreshDataset(previous(), { fetchImpl: fetch, delayMs: 0 })
+  assert.deepEqual(dataset.policies[0].chapters, [
+    { title: 'Real chapter', url: `${ORIGIN}/pal/alpha/guidance/real-chapter` },
+  ])
+  assert.equal(
+    dataset.sections['7'].some((section) => section.heading === 'Real section'),
+    true
+  )
+})
+
+test('sanitizeDatasetNavigationLinks repairs a fetched dataset without touching real chapters', () => {
+  const fetched = previous({
+    chapters: [
+      { title: 'Skip to main content', url: `${ORIGIN}/pal/alpha/print-all` },
+      { title: 'Print whole topic', url: `${ORIGIN}/pal/alpha/print-all` },
+      { title: 'Real chapter', url: `${ORIGIN}/pal/alpha/guidance/real-chapter` },
+    ],
+  })
+  const cleaned = sanitizeDatasetNavigationLinks(fetched)
+  assert.deepEqual(cleaned.policies[0].chapters, [
+    { title: 'Real chapter', url: `${ORIGIN}/pal/alpha/guidance/real-chapter` },
+  ])
+  assert.equal(fetched.policies[0].chapters.length, 3)
+  assert.equal(cleaned.bodies, fetched.bodies)
+  assert.equal(cleaned.sections, fetched.sections)
+  assert.equal(cleaned.corpus, fetched.corpus)
 })
 
 test('a failed policy preserves its complete old policy and all three derived stores', async () => {

@@ -271,13 +271,29 @@ function validPolicyLink(value, base, slug) {
   }
 }
 
+export function isPolicyChapter(chapter) {
+  const title = String(chapter?.title || '').trim()
+  if (/^skip to main content$/i.test(title)) return false
+  const value = chapter?.url || chapter?.href
+  try {
+    return !/\/print-all\/?$/i.test(new URL(value, ORIGIN).pathname)
+  } catch {
+    return true
+  }
+}
+
+export function filterPolicyChapters(chapters) {
+  if (!Array.isArray(chapters)) return []
+  return chapters.filter(isPolicyChapter)
+}
+
 function pageLinks(html, base, slug) {
   const links = []
   const seen = new Set()
   for (const match of html.matchAll(/<a\b([^>]*)>([^]*?)<\/a>/gi)) {
     const url = validPolicyLink(attr(match[1], 'href'), base, slug)
     const title = plain(match[2])
-    if (!url || !title || seen.has(url)) continue
+    if (!url || !title || !isPolicyChapter({ title, url }) || seen.has(url)) continue
     seen.add(url)
     links.push({ title, url })
   }
@@ -367,8 +383,7 @@ function extractPage(html, sourceUrl, slug) {
     (chunk) =>
       !/^(?:resources|related policies|policy last updated|scope|date)$/i.test(
         chunk.heading.trim()
-      ) &&
-      chunk.text.split(/\s+/).length >= 8
+      ) && chunk.text.split(/\s+/).length >= 8
   )
   const summarySource = summaryBlock
     ? shortLead
@@ -478,6 +493,26 @@ function tabsAndChapters(links, slug) {
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value))
+}
+
+/** Remove scraper navigation artefacts from an already fetched dataset.
+ * This is intentionally pure so a downloaded package can be repaired
+ * deterministically without another PAL crawl. */
+export function sanitizeDatasetNavigationLinks(dataset) {
+  if (!dataset || !Array.isArray(dataset.policies))
+    throw new TypeError('dataset must contain a policies array')
+  return {
+    ...dataset,
+    policies: dataset.policies.map((policy) => {
+      if (!Array.isArray(policy.chapters)) return policy
+      const chapters = filterPolicyChapters(policy.chapters)
+      if (chapters.length === policy.chapters.length) return policy
+      const cleaned = { ...policy }
+      if (chapters.length) cleaned.chapters = chapters
+      else delete cleaned.chapters
+      return cleaned
+    }),
+  }
 }
 
 function isShallowPolicy(policy, slug) {
